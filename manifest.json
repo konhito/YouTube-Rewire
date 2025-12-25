@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "YT Recommendation Booster",
+  "version": "1.0",
+  "description": "Simulates natural YouTube watching based on your interests to improve recommendations over a 7-day boost.",
+  "permissions": ["tabs", "storage", "alarms", "scripting", "notifications"],
+  "host_permissions": ["https://www.youtube.com/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "128": "icon-128.png"
+    }
+  },
+  "icons": {
+    "128": "icon-128.png"
+  }
+}
