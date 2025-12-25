@@ -49,111 +49,196 @@ function varyKeyword(keyword) {
 
 async function runSession({ keyword, config }) {
   try {
+    console.log('Starting session with keyword:', keyword);
     const usedKeyword = varyKeyword(keyword);
-    // Wait for search box
+    console.log('Using varied keyword:', usedKeyword);
+    
+    // Wait for search box with better selectors
     const searchInput = await waitForSelector(
-      ["input#search", 'input[name="search_query"]', "#search input"],
-      8000
+      ["input#search", 'input[name="search_query"]', "#search-input input", "input[placeholder*='Search']"],
+      10000
     );
+    console.log('Found search input:', searchInput);
+    
     // Wait a bit for realistic load
-    await sleep(rand(3000, 5000));
-    // Type keyword
+    await sleep(rand(2000, 3000));
+    
+    // Clear and type keyword
+    searchInput.focus();
+    searchInput.select();
+    await sleep(200);
     await typeSlowly(searchInput, usedKeyword);
-    // Submit search by clicking search button or Enter
-    const searchBtn =
-      document.querySelector("button#search-icon-legacy") ||
-      document.querySelector('button[aria-label="Search"]');
-    if (searchBtn) searchBtn.click();
-    else {
-      // press Enter
-      searchInput.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "Enter", bubbles: true })
-      );
-      searchInput.dispatchEvent(
-        new KeyboardEvent("keyup", { key: "Enter", bubbles: true })
-      );
+    console.log('Typed keyword:', usedKeyword);
+    
+    // Try multiple methods to submit search
+    let searchSubmitted = false;
+    
+    // Method 1: Click search button
+    const searchButton = document.querySelector('#search-icon-legacy') || 
+                        document.querySelector('button[aria-label="Search"]') ||
+                        document.querySelector('#search-icon') ||
+                        document.querySelector('.ytSearchboxComponentButton');
+    
+    if (searchButton) {
+      console.log('Found search button, clicking...');
+      searchButton.click();
+      searchSubmitted = true;
+    } else {
+      // Method 2: Press Enter key
+      console.log('Search button not found, using Enter key...');
+      searchInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      await sleep(100);
+      searchInput.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', bubbles: true }));
+      searchSubmitted = true;
     }
+    
+    if (!searchSubmitted) throw new Error('Could not submit search');
+    console.log('Search submitted successfully');
+    
     // Wait for results to populate
-    await sleep(rand(2000, 4000));
-    // Click first video - try several selectors
-    const firstSelectors = [
-      "ytd-video-renderer ytd-thumbnail a#thumbnail",
-      "ytd-rich-item-renderer ytd-thumbnail a#thumbnail",
-      "ytd-video-renderer #video-title",
-      "ytd-rich-item-renderer #video-title",
-    ];
-    let clicked = false;
-    for (const sel of firstSelectors) {
-      const el = document.querySelector(sel);
-      if (el) {
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
-        await sleep(rand(300, 700));
-        el.click();
-        clicked = true;
-        break;
+    await sleep(rand(4000, 6000));
+    console.log('Waiting for search results...');
+    
+    // Get ALL videos from search results
+    const allVideoLinks = await getAllVideosFromResults();
+    console.log(`Found ${allVideoLinks.length} videos to watch`);
+    
+    if (allVideoLinks.length === 0) {
+      throw new Error('No videos found in search results');
+    }
+    
+    // Watch multiple videos (3-5 videos)
+    const videosToWatch = Math.min(allVideoLinks.length, randInt(3, 5));
+    let totalWatchTime = 0;
+    
+    for (let i = 0; i < videosToWatch; i++) {
+      const videoLink = allVideoLinks[i];
+      console.log(`Watching video ${i + 1}/${videosToWatch}:`, videoLink.href);
+      
+      // Click the video
+      videoLink.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      await sleep(rand(500, 1000));
+      videoLink.click();
+      
+      // Wait for video page to load
+      await sleep(rand(3000, 5000));
+      
+      const watchTime = await watchCurrentVideo(config);
+      totalWatchTime += watchTime;
+      
+      // Go back to search results (except for last video)
+      if (i < videosToWatch - 1) {
+        window.history.back();
+        await sleep(rand(2000, 3000));
       }
     }
-    if (!clicked) {
-      // fallback: try to find first visible /watch? link
-      const anchors = Array.from(
-        document.querySelectorAll('a[href*="/watch?"]')
-      );
-      const candidate = anchors.find(
-        (a) => a.offsetWidth > 0 && a.offsetHeight > 0
-      );
-      if (candidate) {
-        candidate.scrollIntoView({ behavior: "smooth", block: "center" });
-        await sleep(rand(300, 700));
-        candidate.click();
-        clicked = true;
-      }
-    }
-    if (!clicked) throw new Error("No video found to click");
+    
+    return { success: true, keyword: usedKeyword, watchSeconds: totalWatchTime, videosWatched: videosToWatch };
+    
+  } catch (err) {
+    console.error('Session error:', err);
+    return { success: false, error: String(err), keyword };
+  }
+}
 
-    // Wait for video page load (video element)
-    const videoEl = await waitForSelector(["video"], 15000);
-    // Small wait for player API to initialize
-    await sleep(rand(1500, 3000));
-    // Mute to avoid noise and try to play
+// Get all video links from search results page
+async function getAllVideosFromResults() {
+  const videoLinks = [];
+  const selectors = [
+    'ytd-video-renderer h3 a',
+    'ytd-video-renderer #video-title',
+    'ytd-shorts-lockup-view-model a',
+    'ytd-reel-item-renderer a',
+    'a[href*="/watch?v="]',
+    'a[href*="/shorts/"]'
+  ];
+  
+  for (const selector of selectors) {
+    const elements = document.querySelectorAll(selector);
+    for (const el of elements) {
+      const href = el.href;
+      if (href && (href.includes('/watch?v=') || href.includes('/shorts/')) &&
+          el.offsetWidth > 0 && el.offsetHeight > 0) {
+        // Avoid duplicates
+        if (!videoLinks.find(link => link.href === href)) {
+          videoLinks.push(el);
+        }
+      }
+    }
+  }
+  
+  // Shuffle for variety
+  return videoLinks.sort(() => Math.random() - 0.5).slice(0, 10);
+}
+
+// Watch current video page
+async function watchCurrentVideo(config) {
+  try {
+    console.log('Loading video page...');
+    
+    // Look for video element
+    const videoEl = await waitForSelector(["video"], 8000);
+    console.log('Found video element:', videoEl);
+    
+    // Try to play and mute
     try {
       videoEl.muted = true;
-      // play
       await videoEl.play();
+      console.log('Video playing');
     } catch (err) {
-      // ignore play errors (autoplay policies)
+      console.log('Play error (autoplay policy):', err.message);
     }
-    // Determine duration
+    
+    // Determine watch time
     let duration = videoEl.duration || 0;
-    if (!isFinite(duration) || duration <= 0) duration = 60; // fallback to 60s
-    const pct = rand(0.8, 1.0);
-    const watchSeconds = Math.min(
-      duration * pct,
-      config.maxWatchSeconds || 900
-    );
-    // Engage: occasional scrolls and short pauses
-    const halfway = Math.max(1, Math.floor(watchSeconds / 2));
-    // wait until halfway, then scroll & small pause
-    await sleep((halfway - 1) * 1000);
-    window.scrollTo({
-      top: document.body.scrollHeight / 2,
-      behavior: "smooth",
-    });
-    await sleep(rand(1000, 2000));
-    // resume watching rest
-    await sleep((watchSeconds - halfway) * 1000);
-    // Session finished
-    return { success: true, keyword: usedKeyword, watchSeconds };
-  } catch (err) {
-    return { success: false, error: String(err), keyword };
+    if (!isFinite(duration) || duration <= 0) duration = 30; // fallback
+    const watchSeconds = Math.min(duration * rand(0.3, 0.8), config.maxWatchSeconds || 180);
+    console.log(`Watching for ${watchSeconds} seconds`);
+    
+    // Engage: scroll and interact
+    const quarterTime = watchSeconds / 4;
+    await sleep(quarterTime * 1000);
+    window.scrollTo({ top: 200, behavior: 'smooth' });
+    await sleep(quarterTime * 1000);
+    window.scrollTo({ top: 400, behavior: 'smooth' });
+    await sleep(quarterTime * 1000);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    await sleep(quarterTime * 1000);
+    
+    return watchSeconds;
+    
+  } catch (videoError) {
+    console.log('Video element not found, but staying on page...');
+    await sleep(rand(10000, 20000));
+    return 15;
   }
 }
 
 // Listen for messages to start a session
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  console.log('Content script received message:', msg);
+  
   if (msg.action === "startSession") {
     // Run and report back
     (async () => {
+      console.log('Starting session with params:', msg.params);
+      
+      // Wait for page to be ready
+      if (document.readyState !== 'complete') {
+        console.log('Waiting for page to load...');
+        await new Promise(resolve => {
+          if (document.readyState === 'complete') {
+            resolve();
+          } else {
+            window.addEventListener('load', resolve);
+          }
+        });
+      }
+      
+      console.log('Page ready, starting session...');
       const result = await runSession(msg.params);
+      console.log('Session result:', result);
+      
       chrome.runtime.sendMessage({ type: "sessionResult", result });
       sendResponse({ status: "done" });
     })();
@@ -161,3 +246,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 });
+
+// Also add a ready check on script load
+console.log('Content script loaded on:', window.location.href);

@@ -7,9 +7,18 @@ const $ = (id) => document.getElementById(id);
 async function loadState() {
   const s = await new Promise((r) => chrome.storage.local.get(null, r));
   const keywords = (s.keywords && s.keywords.join(", ")) || DEFAULT.join(", ");
-  $("keywords").value = keywords;
-  $("topic").value = s.lastTopic || "";
-  $("apiKey").value = s.apiKey ? "********" : "";
+  
+  // Only update fields if they're not currently focused (user not typing)
+  if (document.activeElement !== $("keywords")) {
+    $("keywords").value = keywords;
+  }
+  if (document.activeElement !== $("topic")) {
+    $("topic").value = s.lastTopic || "";
+  }
+  if (document.activeElement !== $("apiKey")) {
+    $("apiKey").value = s.apiKey ? "********" : "";
+  }
+  
   updateStatus(s);
   renderLogs(s.logs || []);
   setRunningUI(!!s.isRunning);
@@ -49,11 +58,14 @@ $("generateBtn").addEventListener("click", async () => {
     resolvedKey = apiKeyInput;
   }
   if (!resolvedKey) {
-    return showToast(
-      "An API key is required to generate. Paste it and click Save.",
-      5000,
+    showToast(
+      "No API key found. You can still type keywords manually below.",
+      4500,
       "error"
     );
+    // Focus on keywords textarea for manual entry
+    $("keywords").focus();
+    return;
   }
 
   // Indicate loading state
@@ -68,11 +80,21 @@ $("generateBtn").addEventListener("click", async () => {
     setRunningUI(false);
 
     if (!resp) {
-      showToast("Generation failed (no response).", 6000, "error");
+      showToast(
+        "Generation failed. You can type keywords manually below.",
+        5000,
+        "error"
+      );
+      $("keywords").focus();
       return;
     }
     if (resp.error) {
-      showToast("Error: " + resp.error, 6500, "error");
+      showToast(
+        "API Error. Type keywords manually below: " + resp.error,
+        6500,
+        "error"
+      );
+      $("keywords").focus();
       return;
     }
     const kws = (resp.keywords && resp.keywords.join(", ")) || "";
@@ -153,23 +175,53 @@ function setRunningUI(isRunning) {
   $("stopBtn").disabled = !isRunning;
 }
 
-$("startBtn").addEventListener("click", async () => {
+$("startBtn").addEventListener("click", async (event) => {
+  event.preventDefault();
   const raw = $("keywords").value.trim();
+
+  // Validate keywords
+  if (!raw || raw.length < 3) {
+    showToast(
+      "Please enter at least one keyword (3+ characters).",
+      4000,
+      "error"
+    );
+    return;
+  }
+
   const kw = raw
-    ? raw
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .slice(0, 20)
-    : DEFAULT;
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .slice(0, 20);
+
+  if (kw.length === 0) {
+    showToast(
+      "No valid keywords found. Please enter comma-separated topics.",
+      4000,
+      "error"
+    );
+    return;
+  }
+
+  // Immediate UI feedback
+  setRunningUI(true);
+  $("startBtn").innerHTML = 'Starting <span class="spinner"></span>';
+
   // Save keywords
   await new Promise((r) => chrome.storage.local.set({ keywords: kw }, r));
-  // send start message
-  chrome.runtime.sendMessage({ action: "start", keywords: kw }, (res) => {
-    // give immediate UI feedback
-    setRunningUI(true);
-    showToast("Boost started", 3000, "success");
-    setTimeout(() => window.close(), 600);
+
+  // Send start message for IMMEDIATE sessions
+  chrome.runtime.sendMessage({ action: "startImmediate", keywords: kw }, (res) => {
+    $("startBtn").innerHTML = "Start Sessions";
+    if (res && res.status === "started") {
+      showToast(`Sessions started with ${kw.length} keywords!`, 2500, "success");
+      // Close immediately after brief feedback
+      setTimeout(() => window.close(), 300);
+    } else {
+      showToast("Failed to start sessions. Try again.", 4000, "error");
+      setRunningUI(false);
+    }
   });
 });
 
@@ -179,6 +231,14 @@ $("stopBtn").addEventListener("click", async () => {
     showToast("Boost stopped", 3000, "success");
     setTimeout(() => window.close(), 600);
   });
+});
+
+// Add Enter key support for keywords textarea
+$("keywords").addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+    event.preventDefault();
+    $("startBtn").click();
+  }
 });
 
 // Clear logs button

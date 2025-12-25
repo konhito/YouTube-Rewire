@@ -88,6 +88,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     startBoost(msg.keywords).then(() => sendResponse({ status: "started" }));
     return true;
   }
+  if (msg.action === "startImmediate") {
+    startImmediateSessions(msg.keywords).then(() =>
+      sendResponse({ status: "started" })
+    );
+    return true;
+  }
   if (msg.action === "stop") {
     stopBoost().then(() => sendResponse({ status: "stopped" }));
     return true;
@@ -218,17 +224,120 @@ async function startBoost(userKeywords) {
   });
 }
 
+// Start immediate sessions (no scheduling, trigger now)
+async function startImmediateSessions(userKeywords) {
+  const keywords =
+    userKeywords && userKeywords.length
+      ? userKeywords.slice(0, 20)
+      : CONFIG.defaultKeywords;
+  const runId = `immediate-${Date.now()}`;
+
+  // Simple state tracking for immediate mode
+  await setStore({
+    isRunning: true,
+    runId,
+    keywords,
+    startTs: Date.now(),
+    immediateMode: true,
+  });
+
+  // Notify user
+  chrome.notifications.create(`ytboost-immediate-${runId}`, {
+    type: "basic",
+    iconUrl: "icon-128.png",
+    title: "YT Sessions Started",
+    message: `Starting immediate sessions with ${keywords.length} keywords.`,
+  });
+
+  // Start first session immediately
+  triggerImmediateSession(keywords, runId);
+}
+
+// Trigger an immediate session (no alarms)
+async function triggerImmediateSession(keywords, runId) {
+  const keyword =
+    keywords[Math.floor(Math.random() * keywords.length)] ||
+    CONFIG.defaultKeywords[0];
+
+  console.log('Triggering immediate session with keyword:', keyword);
+
+  // Create an ACTIVE tab to YouTube for better automation
+  chrome.tabs.create(
+    { url: "https://www.youtube.com", active: true },
+    async (tab) => {
+      const tabId = tab.id;
+      console.log('Created YouTube tab:', tabId);
+      
+      try {
+        // Wait for tab to load
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        
+        console.log('Injecting content script...');
+        await chrome.scripting.executeScript({
+          target: { tabId },
+          files: ["content.js"],
+        });
+        
+        console.log('Content script injected, sending message...');
+        // Start the session with params
+        setTimeout(() => {
+          chrome.tabs.sendMessage(tabId, {
+            action: "startSession",
+            params: {
+              keyword,
+              runId,
+              config: {
+                maxWatchSeconds: CONFIG.maxWatchSeconds,
+              },
+            },
+          }, (response) => {
+            console.log('Message sent, response:', response);
+            if (chrome.runtime.lastError) {
+              console.error('Message error:', chrome.runtime.lastError);
+            }
+            
+            // Schedule next session after this one completes
+            setTimeout(() => {
+              triggerImmediateSession(keywords, runId);
+            }, rand(10000, 30000)); // 10-30 seconds between sessions
+          });
+        }, 2000);
+        
+      } catch (err) {
+        console.error("Session error", err);
+        chrome.tabs.remove(tabId).catch(() => {});
+        await appendLog({
+          kind: "error",
+          message: "Session failure",
+          details: String(err),
+          time: Date.now(),
+        });
+        
+        // Retry after error
+        setTimeout(() => {
+          triggerImmediateSession(keywords, runId);
+        }, 30000);
+      }
+    }
+  );
+}
+
 // Stop the boost early
 async function stopBoost() {
   const store = await getStore();
   const runId = (store.currentRun && store.currentRun.id) || store.runId;
   if (runId) cancelRunAlarms(runId);
-  await setStore({ isRunning: false, runId: null, currentRun: null });
+  await setStore({
+    isRunning: false,
+    runId: null,
+    currentRun: null,
+    immediateMode: false,
+  });
   chrome.notifications.create("ytboost-stopped", {
     type: "basic",
     iconUrl: "icon-128.png",
-    title: "YT Recommendation Booster stopped",
-    message: "Boost stopped early by user.",
+    title: "YT Sessions stopped",
+    message: "Sessions stopped by user.",
   });
 }
 
@@ -328,8 +437,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       if (sender.tab && sender.tab.id) {
         chrome.tabs.remove(sender.tab.id).catch(() => {});
       }
-      // Update daysCompleted if appropriate (simple heuristic)
+
+      // In immediate mode, trigger another session after a brief delay
       const s = await getStore();
+      if (s.immediateMode && s.isRunning && s.keywords) {
+        // Wait 5-15 seconds then start another session
+        setTimeout(() => {
+          triggerImmediateSession(s.keywords, s.runId);
+        }, Math.floor(Math.random() * 10000) + 5000); // 5-15 sec delay
+      }
+
+      // Update daysCompleted if appropriate (simple heuristic)
       let daysCompleted = s.daysCompleted || 0;
       if (s.startTs) {
         const daysPassed =

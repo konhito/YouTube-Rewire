@@ -16,7 +16,12 @@
       body {
         height: 100%;
         margin: 0;
-        background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #334155 100%);
+        background: linear-gradient(
+          135deg,
+          #0f172a 0%,
+          #1e293b 50%,
+          #334155 100%
+        );
       }
       body {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
@@ -299,20 +304,48 @@
       </div>
 
       <label>Gemini API Key (optional)</label>
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
-        <input id="apiKey" type="password" aria-label="Gemini API Key" placeholder="Paste Gemini API key (kept local)" style="flex:1;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:#fff" />
+      <div
+        style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px"
+      >
+        <input
+          id="apiKey"
+          type="password"
+          aria-label="Gemini API Key"
+          placeholder="Paste Gemini API key (kept local)"
+          style="
+            flex: 1;
+            padding: 8px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            background: transparent;
+            color: #fff;
+          "
+        />
         <button id="showKeyBtn" class="btn" title="Show/Hide key">Show</button>
         <button id="saveKeyBtn" class="btn" title="Save key">Save</button>
         <button id="clearKeyBtn" class="btn" title="Clear key">Clear</button>
       </div>
-      <div id="keyHint" style="font-size:11px;color:rgba(255,255,255,0.56);margin-bottom:6px">Key is stored locally. The extension will only send it to the API endpoint when generating keywords.</div>
+      <div
+        id="keyHint"
+        style="
+          font-size: 11px;
+          color: rgba(255, 255, 255, 0.56);
+          margin-bottom: 6px;
+        "
+      >
+        Key is stored locally. The extension will only send it to the API
+        endpoint when generating keywords.
+      </div>
 
       <label>Keywords (comma-separated):</label>
-      <textarea id="keywords" placeholder="e.g., cooking recipes, travel vlogs, Python programming"></textarea>
+      <textarea
+        id="keywords"
+        placeholder="e.g., cooking recipes, travel vlogs, Python programming"
+      ></textarea>
 
       <div class="actions">
-        <button id="startBtn" class="btn primary">Start 7-Day Boost</button>
-        <button id="stopBtn" class="btn">Stop Early</button>
+        <button id="startBtn" class="btn primary">Start Sessions</button>
+        <button id="stopBtn" class="btn">Stop Sessions</button>
         <button id="clearLogsBtn" class="btn" title="Clear recent logs">
           Clear Logs
         </button>
@@ -320,10 +353,11 @@
 
       <div class="status" id="status">Status: idle</div>
       <div class="meta">
-        Sessions: randomized 3–5/day • Max watch 15 min • Ethical simulation
+        Sessions: immediate start • Max watch 15 min • Ethical simulation
       </div>
       <div class="tip">
-        Tip: Use your real interests. Test on a dev account first for safety.
+        Tip: You can type keywords manually even if API generation fails. Use
+        your real interests for best results.
       </div>
       <h4 style="margin-top: 10px">Recent activity</h4>
       <div class="logs" id="logs">No logs yet.</div>
