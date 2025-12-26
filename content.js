@@ -108,32 +108,105 @@ async function runSession({ keyword, config }) {
     }
     
     // Watch multiple videos (3-5 videos)
-    const videosToWatch = Math.min(allVideoLinks.length, randInt(3, 5));
+    const videosToWatch = Math.min(allVideoLinks.length, randInt(2, 4));
     let totalWatchTime = 0;
+    let successfulWatches = 0;
     
     for (let i = 0; i < videosToWatch; i++) {
       const videoLink = allVideoLinks[i];
       console.log(`Watching video ${i + 1}/${videosToWatch}:`, videoLink.href);
       
-      // Click the video
-      videoLink.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      await sleep(rand(500, 1000));
-      videoLink.click();
-      
-      // Wait for video page to load
-      await sleep(rand(3000, 5000));
-      
-      const watchTime = await watchCurrentVideo(config);
-      totalWatchTime += watchTime;
-      
-      // Go back to search results (except for last video)
-      if (i < videosToWatch - 1) {
-        window.history.back();
-        await sleep(rand(2000, 3000));
+      try {
+        // Click the video
+        videoLink.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        await sleep(rand(500, 1000));
+        videoLink.click();
+        
+        // Wait for video page to load and check if we're on a video page
+        await sleep(rand(2000, 4000));
+        
+        // Verify we're on a video/shorts page
+        if (!window.location.href.includes('/watch') && !window.location.href.includes('/shorts/')) {
+          console.log('Not on video page, skipping...');
+          continue;
+        }
+        
+        const watchTime = await watchCurrentVideo(config);
+        totalWatchTime += watchTime;
+        successfulWatches++;
+        
+        console.log(`Video ${i + 1} completed. Watch time: ${watchTime}s`);
+        
+        // Go back to search results (except for last video)
+        if (i < videosToWatch - 1) {
+          const isCurrentlyOnShorts = window.location.href.includes('/shorts/');
+          
+          if (isCurrentlyOnShorts) {
+            console.log('On shorts page, using search button to return...');
+            
+            // Click search button to go back to search
+            const searchButton = document.querySelector('#search-icon-legacy') || 
+                                document.querySelector('button[aria-label="Search"]') ||
+                                document.querySelector('#search-icon') ||
+                                document.querySelector('.ytSearchboxComponentButton');
+            
+            if (searchButton) {
+              console.log('Found search button, clicking...');
+              searchButton.click();
+              await sleep(rand(2000, 3000));
+            } else {
+              // Fallback: navigate to search URL directly
+              console.log('Search button not found, navigating to search URL...');
+              const searchQuery = usedKeyword.replace(/\s+/g, '+');
+              window.location.href = `https://www.youtube.com/results?search_query=${encodeURIComponent(searchQuery)}`;
+              await sleep(rand(3000, 4000));
+            }
+            
+          } else {
+            console.log('Going back to search results...');
+            window.history.back();
+            await sleep(rand(2000, 4000));
+          }
+          
+          // Verify we're back on search results
+          let backAttempts = 0;
+          while (!window.location.href.includes('/results') && backAttempts < 3) {
+            console.log('Not back at search results, trying direct navigation...');
+            const searchQuery = usedKeyword.replace(/\s+/g, '+');
+            window.location.href = `https://www.youtube.com/results?search_query=${encodeURIComponent(searchQuery)}`;
+            await sleep(3000);
+            backAttempts++;
+          }
+          
+          if (!window.location.href.includes('/results')) {
+            console.log('Could not return to search results, ending session');
+            break;
+          }
+        }
+        
+      } catch (videoError) {
+        console.log(`Error watching video ${i + 1}:`, videoError);
+        // Try to go back and continue with next video
+        if (i < videosToWatch - 1) {
+          try {
+            window.history.back();
+            await sleep(2000);
+          } catch (backError) {
+            console.log('Could not go back, ending session');
+            break;
+          }
+        }
       }
     }
     
-    return { success: true, keyword: usedKeyword, watchSeconds: totalWatchTime, videosWatched: videosToWatch };
+    console.log(`Session completed. Videos watched: ${successfulWatches}/${videosToWatch}, Total time: ${totalWatchTime}s`);
+    return { 
+      success: true, 
+      keyword: usedKeyword, 
+      watchSeconds: totalWatchTime, 
+      videosWatched: successfulWatches,
+      videosAttempted: videosToWatch
+    };
     
   } catch (err) {
     console.error('Session error:', err);
@@ -175,7 +248,38 @@ async function getAllVideosFromResults() {
 async function watchCurrentVideo(config) {
   try {
     console.log('Loading video page...');
+    const currentUrl = window.location.href;
+    const isShorts = currentUrl.includes('/shorts/');
+    console.log('Video type:', isShorts ? 'Shorts' : 'Regular Video');
     
+    if (isShorts) {
+      // Handle YouTube Shorts differently - watch multiple shorts by scrolling
+      console.log('Handling YouTube Shorts...');
+      
+      const shortsToWatch = randInt(2, 4); // Watch 2-4 shorts
+      console.log(`Will watch ${shortsToWatch} shorts by scrolling`);
+      
+      for (let shortIndex = 0; shortIndex < shortsToWatch; shortIndex++) {
+        const watchTime = rand(5, 15); // Each short 5-15 seconds
+        console.log(`Watching short ${shortIndex + 1}/${shortsToWatch} for ${watchTime}s`);
+        
+        // Watch current short
+        await sleep(watchTime * 1000);
+        
+        // Scroll down to next short (except for last one)
+        if (shortIndex < shortsToWatch - 1) {
+          console.log('Scrolling to next short...');
+          window.scrollBy({ top: window.innerHeight, behavior: 'smooth' });
+          await sleep(rand(1000, 2000)); // Wait for next short to load
+        }
+      }
+      
+      console.log('Finished watching shorts, returning to search');
+      return shortsToWatch * 10; // Return total estimated watch time
+      
+    } else {
+      // Handle regular videos - existing logic
+      
     // Look for video element
     const videoEl = await waitForSelector(["video"], 8000);
     console.log('Found video element:', videoEl);
@@ -189,28 +293,76 @@ async function watchCurrentVideo(config) {
       console.log('Play error (autoplay policy):', err.message);
     }
     
-    // Determine watch time
+    // Wait for video to load metadata
+    await new Promise((resolve) => {
+      if (videoEl.readyState >= 1) resolve();
+      else videoEl.addEventListener('loadedmetadata', resolve);
+    });
+    
+    // Determine watch strategy based on video duration
     let duration = videoEl.duration || 0;
-    if (!isFinite(duration) || duration <= 0) duration = 30; // fallback
-    const watchSeconds = Math.min(duration * rand(0.3, 0.8), config.maxWatchSeconds || 180);
-    console.log(`Watching for ${watchSeconds} seconds`);
+    if (!isFinite(duration) || duration <= 0) duration = 60; // fallback
     
-    // Engage: scroll and interact
-    const quarterTime = watchSeconds / 4;
-    await sleep(quarterTime * 1000);
-    window.scrollTo({ top: 200, behavior: 'smooth' });
-    await sleep(quarterTime * 1000);
-    window.scrollTo({ top: 400, behavior: 'smooth' });
-    await sleep(quarterTime * 1000);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-    await sleep(quarterTime * 1000);
+    let watchSeconds;
+    if (duration <= 30) {
+      // Very short videos (30s or less) - watch completely
+      watchSeconds = duration;
+      console.log(`Short video (${duration}s) - watching completely`);
+    } else if (duration <= 180) {
+      // Short videos (under 3 minutes) - watch 80-100%
+      watchSeconds = duration * rand(0.8, 1.0);
+      console.log(`Medium video (${duration}s) - watching ${watchSeconds}s`);
+    } else {
+      // Longer videos - watch 30-60% or max 5 minutes
+      watchSeconds = Math.min(duration * rand(0.3, 0.6), 300);
+      console.log(`Long video (${duration}s) - watching ${watchSeconds}s`);
+    }
     
-    return watchSeconds;
+    // Watch with real-time monitoring
+    const startTime = Date.now();
+    const targetEndTime = startTime + (watchSeconds * 1000);
+    let lastCurrentTime = 0;
+    
+    while (Date.now() < targetEndTime) {
+      // Check if video ended
+      if (videoEl.ended) {
+        console.log('Video ended naturally');
+        await sleep(1000); // Brief pause before moving on
+        break;
+      }
+      
+      // Check if video is stuck (not progressing)
+      if (Math.abs(videoEl.currentTime - lastCurrentTime) < 0.1) {
+        console.log('Video appears stuck, continuing...');
+      }
+      lastCurrentTime = videoEl.currentTime;
+      
+      // Realistic engagement during watching
+      const elapsed = (Date.now() - startTime) / 1000;
+      const progress = elapsed / watchSeconds;
+      
+      if (progress > 0.25 && progress < 0.3) {
+        window.scrollTo({ top: 200, behavior: 'smooth' });
+      } else if (progress > 0.5 && progress < 0.55) {
+        window.scrollTo({ top: 400, behavior: 'smooth' });
+      } else if (progress > 0.75 && progress < 0.8) {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+      
+      // Check every second
+      await sleep(1000);
+    }
+    
+    const actualWatchTime = Math.min((Date.now() - startTime) / 1000, duration);
+    console.log(`Finished watching. Planned: ${watchSeconds}s, Actual: ${actualWatchTime}s`);
+    
+    return actualWatchTime;
+    } // End of else block for regular videos
     
   } catch (videoError) {
     console.log('Video element not found, but staying on page...');
-    await sleep(rand(10000, 20000));
-    return 15;
+    await sleep(rand(5000, 10000)); // Shorter wait if no video
+    return 8;
   }
 }
 

@@ -82,6 +82,33 @@ function cancelRunAlarms(runId) {
   });
 }
 
+// Listen for session results and other messages
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type === "sessionResult") {
+    const result = msg.result;
+    console.log('Session completed:', result);
+    
+    // Log the session result
+    if (result.success) {
+      appendLog({
+        kind: "success",
+        message: `Session completed: ${result.videosWatched || 1} videos watched`,
+        details: `Keyword: "${result.keyword}", Watch time: ${Math.round(result.watchSeconds || 0)}s`,
+        time: Date.now()
+      });
+    } else {
+      appendLog({
+        kind: "error", 
+        message: "Session failed",
+        details: result.error || "Unknown error",
+        time: Date.now()
+      });
+    }
+    
+    sendResponse({ received: true });
+  }
+});
+
 // Start the boost: initialize storage, schedule alarms, create run id
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.action === "start") {
@@ -299,7 +326,7 @@ async function triggerImmediateSession(keywords, runId) {
             // Schedule next session after this one completes
             setTimeout(() => {
               triggerImmediateSession(keywords, runId);
-            }, rand(10000, 30000)); // 10-30 seconds between sessions
+            }, rand(30000, 120000)); // 30 seconds to 2 minutes between sessions
           });
         }, 2000);
         
